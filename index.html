@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MAMEGO - Domino Go Game</title>
+    <title>GOMINO - Domino Go Game</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -38,7 +38,7 @@
         <!-- ヘッダー: タイトル & 設定歯車ボタン -->
         <header class="w-full flex items-center justify-between pt-1">
             <div class="w-8"></div> <!-- レイアウト崩れ防止用ダミー -->
-            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-wider text-center">MAMEGO</h1>
+            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-wider text-center">GOMINO</h1>
             <button id="btnOpenSettings" title="設定" class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 active:scale-95 transition-all">
                 <svg class="w-6 h-6 current-color" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
@@ -558,6 +558,9 @@
                 ctx.fill();
             });
 
+            // 孤立空点（窒息目）を薄い中間色の丸で表示
+            drawIsolatedPoints(padding, cellSize);
+
             // ドミノ & 石の描画
             drawBoardElements(padding, cellSize);
 
@@ -580,6 +583,24 @@
                 ];
             }
             return [];
+        }
+
+        function drawIsolatedPoints(padding, cellSize) {
+            const r = cellSize * 0.40; // 石(豆)と同じ直径
+            ctx.save();
+            ctx.fillStyle = 'rgba(128, 128, 128, 0.35)'; // 中間色(グレー)・薄めの表示
+            for (let i = 0; i < board.length; i++) {
+                if (isIsolatedEmptyPoint(board, i)) {
+                    const x = i % BOARD_SIZE;
+                    const y = Math.floor(i / BOARD_SIZE);
+                    const cx = padding + x * cellSize;
+                    const cy = padding + y * cellSize;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.restore();
         }
 
         function drawBoardElements(padding, cellSize) {
