@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MAMEGO</title>
+    <title>MAMEGO - Domino Go Game</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -954,6 +954,14 @@
             });
         }
 
+        // 孤立空点（窒息目）判定: 上下左右の実在する隣接マスすべてが駒で埋まっている空点かどうか
+        // (盤端・隅は隣接マス数が4未満になるが、存在する隣接マスすべてが駒であれば対象とする)
+        function isIsolatedEmptyPoint(boardState, idx) {
+            if (boardState[idx] !== 0) return false;
+            const neighbors = getNeighbors(idx);
+            return neighbors.every(n => boardState[n] !== 0);
+        }
+
         function getCapturedStones(boardState, player) {
             const visited = Array(BOARD_SIZE * BOARD_SIZE).fill(false);
             const captured = [];
@@ -971,7 +979,7 @@
 
                         const neighbors = getNeighbors(curr);
                         neighbors.forEach(n => {
-                            if (boardState[n] === 0) {
+                            if (boardState[n] === 0 && !isIsolatedEmptyPoint(boardState, n)) {
                                 hasLiberty = true;
                             } else if (boardState[n] === player && !visited[n]) {
                                 visited[n] = true;
@@ -1001,7 +1009,7 @@
                 const curr = queue.shift();
                 const neighbors = getNeighbors(curr);
                 neighbors.forEach(n => {
-                    if (boardState[n] === 0) {
+                    if (boardState[n] === 0 && !isIsolatedEmptyPoint(boardState, n)) {
                         liberties++;
                     } else if (boardState[n] === player && !visited[n]) {
                         visited[n] = true;
