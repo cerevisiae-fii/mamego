@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MAMEGO - Domino Go Game</title>
+    <title>GOMINO - Domino Go Game</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -38,7 +38,7 @@
         <!-- ヘッダー: タイトル & 設定歯車ボタン -->
         <header class="w-full flex items-center justify-between pt-1">
             <div class="w-8"></div> <!-- レイアウト崩れ防止用ダミー -->
-            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-wider text-center">MAMEGO</h1>
+            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-wider text-center">GOMINO</h1>
             <button id="btnOpenSettings" title="設定" class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 active:scale-95 transition-all">
                 <svg class="w-6 h-6 current-color" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
@@ -420,6 +420,9 @@
         let aiPlayer = 2; // AIの手番 (2: 白=後手, 1: 黒=先手)
         let currentTheme = THEMES.default;
         let previewPos = null; // { x, y, orientation }
+        let lastMove = null; // 直前に配置したコマ { player, p1, p2 }
+        let prevBoard = null; // コウ判定用: 直前の着手が行われる前の盤面
+        let lastPointerType = 'mouse'; // 'mouse' | 'touch' | 'pen' (スマホ判定用)
 
         // オンライン対戦 (PeerJS / WebRTC) 関連
         const ROOM_ID_PREFIX = 'gomino-';
@@ -564,6 +567,9 @@
             // ドミノ & 石の描画
             drawBoardElements(padding, cellSize);
 
+            // 直前に配置したコマのハイライト(緑系)
+            drawLastMove(padding, cellSize);
+
             // プレビュー描画
             if (!gameOver && previewPos && isMyTurn()) {
                 drawPreview(previewPos.x, previewPos.y, previewPos.orientation, padding, cellSize);
@@ -683,6 +689,38 @@
             }
         }
 
+        function drawLastMove(padding, cellSize) {
+            if (!lastMove) return;
+            const r = cellSize * 0.40;
+            const { player, p1, p2 } = lastMove;
+            const idx1 = p1.y * BOARD_SIZE + p1.x;
+            const idx2 = p2.y * BOARD_SIZE + p2.x;
+            const has1 = board[idx1] === player;
+            const has2 = board[idx2] === player;
+            const fill = 'rgba(34, 197, 94, 0.38)';
+            const stroke = '#16a34a';
+
+            const x1 = padding + p1.x * cellSize;
+            const y1 = padding + p1.y * cellSize;
+            const x2 = padding + p2.x * cellSize;
+            const y2 = padding + p2.y * cellSize;
+
+            if (has1 && has2) {
+                drawCapsule(ctx, x1, y1, x2, y2, r, fill, stroke, 3);
+            } else {
+                [[has1, x1, y1], [has2, x2, y2]].forEach(([has, cx, cy]) => {
+                    if (!has) return;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                    ctx.fillStyle = fill;
+                    ctx.fill();
+                    ctx.strokeStyle = stroke;
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                });
+            }
+        }
+
         function drawDeadMarker(cx, cy, r) {
             ctx.save();
             ctx.strokeStyle = '#ef4444';
@@ -709,18 +747,22 @@
             const y2 = padding + secondPos.y * cellSize;
             const r = cellSize * 0.40;
 
-            const fill = isValid 
-                ? (turn === 1 ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.65)')
-                : 'rgba(239,68,68,0.25)';
-            // 枠線は常に線色 (currentTheme.lineColor) に固定
-            const stroke = isValid ? currentTheme.lineColor : '#ef4444';
+            // 配置可能 = 薄い黄色系 / 配置不可 = 赤
+            const fill = isValid ? 'rgba(250, 204, 21, 0.50)' : 'rgba(239, 68, 68, 0.30)';
+            const stroke = isValid ? '#eab308' : '#ef4444';
 
-            drawCapsule(ctx, x1, y1, x2, y2, r, fill, stroke, isValid ? 2 : 2);
+            drawCapsule(ctx, x1, y1, x2, y2, r, fill, stroke, 2);
         }
 
         // ==========================================
         // 5. 入力処理 (タップ位置の最も近い「辺」に置く)
         // ==========================================
+        // ダブルタップ拡大などを防ぎ、タップ操作を安定させる
+        canvas.style.touchAction = 'manipulation';
+
+        // 入力デバイスの種類を記録 (スマホのタッチ後に発火する疑似マウスイベントを無視するため)
+        canvas.addEventListener('pointerdown', (e) => { lastPointerType = e.pointerType || 'mouse'; });
+        canvas.addEventListener('pointermove', (e) => { lastPointerType = e.pointerType || 'mouse'; });
         canvas.addEventListener('mousemove', handleMouseMove);
         canvas.addEventListener('mouseleave', handleMouseLeave);
         canvas.addEventListener('click', handleClick);
@@ -778,6 +820,7 @@
         }
 
         function handleMouseMove(e) {
+            if (lastPointerType === 'touch') return; // タッチ操作ではホバープレビューを出さない
             if (gameOver || gamePhase === 'dead_stone_selection' || !isMyTurn()) return;
             const pos = getGridPosFromEvent(e);
             if (pos) {
@@ -787,6 +830,7 @@
         }
 
         function handleMouseLeave() {
+            if (lastPointerType === 'touch') return;
             if (gameOver) return;
             previewPos = null;
             render();
@@ -821,23 +865,47 @@
             const pos = getGridPosFromEvent(e);
             if (!pos) return;
 
-            const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-            const isMatch = previewPos && 
-                            previewPos.x === pos.x && 
-                            previewPos.y === pos.y && 
-                            previewPos.orientation === pos.orientation;
+            const isTouch = lastPointerType === 'touch';
 
-            if (isMatch || !isTouch) {
-                // 着手試行
+            if (!isTouch) {
+                // マウス: クリックで即配置
                 if (isValidMove(pos.x, pos.y, pos.orientation, turn)) {
                     executeMove(pos.x, pos.y, pos.orientation, turn);
                     previewPos = null;
                 }
+                return;
+            }
+
+            // タッチ: 1回目のタップ=プレビュー、プレビュー上の2回目のタップ=確定
+            if (previewPos && isTapOnPreview(e, previewPos)) {
+                if (isValidMove(previewPos.x, previewPos.y, previewPos.orientation, turn)) {
+                    executeMove(previewPos.x, previewPos.y, previewPos.orientation, turn);
+                    previewPos = null;
+                    render();
+                }
+                // 置けない場所(赤)の場合はプレビューのまま維持
             } else {
-                // 1タップ目: プレビュー選択
                 previewPos = pos;
                 render();
             }
+        }
+
+        // タップ位置がプレビュー中のコマ(2マス分)の上かどうか
+        function isTapOnPreview(e, pv) {
+            const { padding, cellSize } = getBoardMetrics();
+            const rect = canvas.getBoundingClientRect();
+            const u = (e.clientX - rect.left - padding) / cellSize;
+            const v = (e.clientY - rect.top - padding) / cellSize;
+            const second = getSecondPos(pv.x, pv.y, pv.orientation);
+            if (!second) return false;
+
+            // 線分 (pv.x,pv.y)-(second.x,second.y) との距離
+            const ax = pv.x, ay = pv.y, bx = second.x, by = second.y;
+            const abx = bx - ax, aby = by - ay;
+            const t = Math.max(0, Math.min(1, ((u - ax) * abx + (v - ay) * aby) / (abx * abx + aby * aby)));
+            const dx = u - (ax + abx * t);
+            const dy = v - (ay + aby * t);
+            return Math.hypot(dx, dy) <= 0.45;
         }
 
         function toggleDeadGroup(startIdx) {
@@ -916,7 +984,15 @@
             const opponent = player === 1 ? 2 : 1;
             const captured = getCapturedStones(tempBoard, opponent);
 
-            if (captured.length > 0) return true; // 相手石を獲れる手は有効
+            if (captured.length > 0) {
+                // コウ判定: 相手の直前の着手前と同一の盤面になる手は禁止
+                if (prevBoard) {
+                    const after = [...tempBoard];
+                    captured.forEach(i => after[i] = 0);
+                    if (after.every((v, i) => v === prevBoard[i])) return false;
+                }
+                return true; // 相手石を獲れる手は有効
+            }
 
             // 呼吸点確認 (自殺手チェック)
             const lib1 = getLiberties(tempBoard, idx1);
@@ -929,6 +1005,9 @@
             const p2 = getSecondPos(x, y, orient);
             const idx1 = p1.y * BOARD_SIZE + p1.x;
             const idx2 = p2.y * BOARD_SIZE + p2.x;
+
+            prevBoard = [...board]; // コウ判定用に着手前の盤面を保存
+            lastMove = { player, p1, p2 };
 
             board[idx1] = player;
             board[idx2] = player;
@@ -1156,6 +1235,7 @@
             soundManager.playClick();
             if (gameOver || gamePhase !== 'playing' || !isMyTurn()) return;
 
+            prevBoard = null; // パスでコウ制限は解除
             consecutivePasses++;
             if (consecutivePasses >= 2) {
                 startDeadStoneSelectionPhase();
@@ -1273,6 +1353,10 @@
 
             for (let i = 0; i < board.length; i++) {
                 if (board[i] === 0 && !visited[i]) {
+                    if (isIsolatedEmptyPoint(board, i)) { // 孤立空点は壁扱い(地にならない)
+                        visited[i] = true;
+                        continue;
+                    }
                     const region = [];
                     let touchesBlack = false;
                     let touchesWhite = false;
@@ -1486,6 +1570,9 @@
             gameOver = data.gameOver;
             gameResultData = data.gameResultData;
             gamePhase = data.gamePhase || 'playing';
+            prevBoard = data.prevBoard || null;
+            lastMove = data.lastMove || null;
+            previewPos = null;
 
             if (gamePhase === 'dead_stone_selection') {
                 bannerDeadStones.classList.remove('hidden');
@@ -1512,7 +1599,9 @@
                 consecutivePasses,
                 gameOver,
                 gameResultData,
-                gamePhase
+                gamePhase,
+                prevBoard,
+                lastMove
             });
         }
 
@@ -1647,6 +1736,8 @@
             gamePhase = 'playing';
             deadStones.clear();
             previewPos = null;
+            lastMove = null;
+            prevBoard = null;
 
             if (bannerDeadStones) bannerDeadStones.classList.add('hidden');
             resultModal.classList.add('hidden');
