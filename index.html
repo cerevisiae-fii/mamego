@@ -747,9 +747,11 @@
             const y2 = padding + secondPos.y * cellSize;
             const r = cellSize * 0.40;
 
-            // 配置可能 = 薄い黄色系 / 配置不可 = 赤
-            const fill = isValid ? 'rgba(250, 204, 21, 0.50)' : 'rgba(239, 68, 68, 0.30)';
-            const stroke = isValid ? '#eab308' : '#ef4444';
+            // 配置可能 = 手番の色の半透明 / 配置不可 = 赤
+            const fill = isValid
+                ? (turn === 1 ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.65)')
+                : 'rgba(239,68,68,0.25)';
+            const stroke = isValid ? currentTheme.lineColor : '#ef4444';
 
             drawCapsule(ctx, x1, y1, x2, y2, r, fill, stroke, 2);
         }
@@ -984,20 +986,18 @@
             const opponent = player === 1 ? 2 : 1;
             const captured = getCapturedStones(tempBoard, opponent);
 
-            if (captured.length > 0) {
-                // コウ判定: 相手の直前の着手前と同一の盤面になる手は禁止
-                if (prevBoard) {
-                    const after = [...tempBoard];
-                    captured.forEach(i => after[i] = 0);
-                    if (after.every((v, i) => v === prevBoard[i])) return false;
-                }
-                return true; // 相手石を獲れる手は有効
-            }
+            // 相手石の捕獲を先に解決した後の盤面
+            const after = [...tempBoard];
+            captured.forEach(i => after[i] = 0);
 
-            // 呼吸点確認 (自殺手チェック)
-            const lib1 = getLiberties(tempBoard, idx1);
-            const lib2 = getLiberties(tempBoard, idx2);
-            return (lib1 + lib2) > 0;
+            // 自殺手チェック: この手(孤立空点の発生も含む)で自分の石が窒息するなら禁止
+            if (getCapturedStones(after, player).length > 0) return false;
+
+            // コウ判定: 相手の直前の着手前と同一の盤面になる手は禁止
+            if (captured.length > 0 && prevBoard) {
+                if (after.every((v, i) => v === prevBoard[i])) return false;
+            }
+            return true;
         }
 
         function executeMove(x, y, orient, player) {
