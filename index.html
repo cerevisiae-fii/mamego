@@ -136,7 +136,7 @@
     <div id="undoModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 hidden">
         <div class="bg-white text-neutral-900 p-6 max-w-sm w-full text-center flex flex-col gap-5 rounded-2xl shadow-2xl border border-neutral-200">
             <h2 class="text-xl font-extrabold tracking-wide">1手戻りますか？</h2>
-            <p class="text-sm text-neutral-600">直前に打たれたドミノを取り消し、その手番に戻ります。</p>
+            <p class="text-sm text-neutral-600">直前に打たれた碁豆を取り消し、その手番に戻ります。</p>
             <div class="flex flex-col gap-2 pt-1">
                 <button id="btnUndoConfirm" class="w-full py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-bold rounded-xl transition-colors">
                     1手戻る
@@ -424,7 +424,7 @@
         // ==========================================
         let BOARD_SIZE = 9;
         let board = Array(BOARD_SIZE * BOARD_SIZE).fill(0); // 0:空, 1:黒, 2:白
-        let dominoes = []; // [{ id, player, p1, p2 }]
+        let mames = []; // [{ id, player, p1, p2 }]
         let turn = 1; // 1:黒, 2:白
         let captures = { 1: 0, 2: 0 };
         let komi = 6.5;
@@ -464,7 +464,7 @@
                 sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
                     boardSize: BOARD_SIZE,
                     board,
-                    dominoes,
+                    mames,
                     turn,
                     captures,
                     consecutivePasses,
@@ -496,7 +496,7 @@
             }
             BOARD_SIZE = s.boardSize;
             board = s.board;
-            dominoes = Array.isArray(s.dominoes) ? s.dominoes : [];
+            mames = Array.isArray(s.mames) ? s.mames : [];
             turn = s.turn === 2 ? 2 : 1;
             captures = (s.captures && typeof s.captures === 'object') ? s.captures : { 1: 0, 2: 0 };
             consecutivePasses = s.consecutivePasses || 0;
@@ -675,7 +675,7 @@
             // 孤立空点（窒息目）を薄い中間色の丸で表示
             drawIsolatedPoints(padding, cellSize);
 
-            // ドミノ & 石の描画
+            // 碁豆 & 石の描画
             drawBoardElements(padding, cellSize);
 
             // 直前に配置したコマのハイライト(緑系)
@@ -723,21 +723,21 @@
         function drawBoardElements(padding, cellSize) {
             const r = cellSize * 0.40;
 
-            // 1. ウインナー型ドミノ (両方のマスに石が残っているもの)
-            dominoes.forEach(dom => {
-                const idx1 = dom.p1.y * BOARD_SIZE + dom.p1.x;
-                const idx2 = dom.p2.y * BOARD_SIZE + dom.p2.x;
-                const has1 = board[idx1] === dom.player;
-                const has2 = board[idx2] === dom.player;
+            // 1. ウインナー型碁豆 (両方のマスに石が残っているもの)
+            mames.forEach(mame => {
+                const idx1 = mame.p1.y * BOARD_SIZE + mame.p1.x;
+                const idx2 = mame.p2.y * BOARD_SIZE + mame.p2.x;
+                const has1 = board[idx1] === mame.player;
+                const has2 = board[idx2] === mame.player;
 
                 if (has1 && has2) {
-                    const x1 = padding + dom.p1.x * cellSize;
-                    const y1 = padding + dom.p1.y * cellSize;
-                    const x2 = padding + dom.p2.x * cellSize;
-                    const y2 = padding + dom.p2.y * cellSize;
+                    const x1 = padding + mame.p1.x * cellSize;
+                    const y1 = padding + mame.p1.y * cellSize;
+                    const x2 = padding + mame.p2.x * cellSize;
+                    const y2 = padding + mame.p2.y * cellSize;
 
-                    const fill = dom.player === 1 ? currentTheme.p1Fill : currentTheme.p2Fill;
-                    const stroke = dom.player === 1 ? currentTheme.p1Stroke : currentTheme.p2Stroke;
+                    const fill = mame.player === 1 ? currentTheme.p1Fill : currentTheme.p2Fill;
+                    const stroke = mame.player === 1 ? currentTheme.p1Stroke : currentTheme.p2Stroke;
 
                     const isDead = deadStones.has(idx1) || deadStones.has(idx2);
                     if (isDead) {
@@ -760,14 +760,14 @@
                     const val = board[idx];
                     if (val === 0) continue;
 
-                    // ドミノで両方の石が健在のものは上で描画済み
-                    const isFullDomino = dominoes.some(d => 
-                        d.player === val &&
-                        ((d.p1.x === x && d.p1.y === y && board[d.p2.y * BOARD_SIZE + d.p2.x] === val) ||
-                         (d.p2.x === x && d.p2.y === y && board[d.p1.y * BOARD_SIZE + d.p1.x] === val))
+                    // 碁豆で両方の石が健在のものは上で描画済み
+                    const isFullMame = mames.some(m => 
+                        m.player === val &&
+                        ((m.p1.x === x && m.p1.y === y && board[m.p2.y * BOARD_SIZE + m.p2.x] === val) ||
+                         (m.p2.x === x && m.p2.y === y && board[m.p1.y * BOARD_SIZE + m.p1.x] === val))
                     );
 
-                    if (!isFullDomino) {
+                    if (!isFullMame) {
                         const cx = padding + x * cellSize;
                         const cy = padding + y * cellSize;
                         const fill = val === 1 ? currentTheme.p1Fill : currentTheme.p2Fill;
@@ -1116,7 +1116,7 @@
             // 1手戻る用に着手前の状態を退避
             history.push({
                 board: [...board],
-                dominoes: [...dominoes],
+                mames: [...mames],
                 captures: { ...captures },
                 turn,
                 consecutivePasses,
@@ -1135,7 +1135,7 @@
             board[idx1] = player;
             board[idx2] = player;
 
-            dominoes.push({
+            mames.push({
                 id: Date.now() + Math.random(),
                 player: player,
                 p1: p1,
@@ -1149,7 +1149,7 @@
                 captured.forEach(idx => board[idx] = 0);
                 captures[player] += captured.length;
                 soundManager.playCapture();
-                cleanUpDominoes();
+                cleanUpMames();
             } else {
                 soundManager.playPlace();
             }
@@ -1171,10 +1171,10 @@
             }
         }
 
-        function cleanUpDominoes() {
-            dominoes = dominoes.filter(d => {
-                const idx1 = d.p1.y * BOARD_SIZE + d.p1.x;
-                const idx2 = d.p2.y * BOARD_SIZE + d.p2.x;
+        function cleanUpMames() {
+            mames = mames.filter(m => {
+                const idx1 = m.p1.y * BOARD_SIZE + m.p1.x;
+                const idx2 = m.p2.y * BOARD_SIZE + m.p2.x;
                 return board[idx1] !== 0 || board[idx2] !== 0;
             });
         }
@@ -1381,7 +1381,7 @@
                 }
             }
             board = snap.board;
-            dominoes = snap.dominoes;
+            mames = snap.mames || [];
             captures = snap.captures;
             turn = snap.turn;
             consecutivePasses = snap.consecutivePasses;
@@ -1468,7 +1468,7 @@
                     board[idx] = 0;
                 }
             });
-            cleanUpDominoes();
+            cleanUpMames();
             deadStones.clear();
             bannerDeadStones.classList.add('hidden');
             gamePhase = 'ended';
@@ -1751,7 +1751,7 @@
                 resizeCanvas();
             }
             board = data.board;
-            dominoes = data.dominoes || [];
+            mames = data.mames || [];
             turn = data.turn;
             captures = data.captures;
             consecutivePasses = data.consecutivePasses;
@@ -1784,7 +1784,7 @@
             conn.send({
                 boardSize: BOARD_SIZE,
                 board,
-                dominoes,
+                mames,
                 turn,
                 captures,
                 consecutivePasses,
@@ -1929,7 +1929,7 @@
 
         function resetGame() {
             board = Array(BOARD_SIZE * BOARD_SIZE).fill(0);
-            dominoes = [];
+            mames = [];
             turn = 1;
             captures = { 1: 0, 2: 0 };
             consecutivePasses = 0;
