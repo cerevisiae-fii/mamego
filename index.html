@@ -88,6 +88,9 @@
 
         <!-- ゲーム操作ボタンエリア -->
         <div class="w-full flex justify-between items-center gap-3">
+            <button id="btnUndo" disabled class="flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold border rounded-xl hover:opacity-80 active:scale-95 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                1手戻る
+            </button>
             <button id="btnPass" class="flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold border rounded-xl hover:opacity-80 active:scale-95 transition-all shadow-sm">
                 パス
             </button>
@@ -127,6 +130,22 @@
         <p class="text-xs opacity-60 text-center leading-relaxed">
             PC: 辺のホバーでプレビュー・クリックで打つ / スマホ: 辺を1タップ目プレビュー、2タップ目確定
         </p>
+    </div>
+
+    <!-- 【1手戻る確認モーダル】 -->
+    <div id="undoModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-white text-neutral-900 p-6 max-w-sm w-full text-center flex flex-col gap-5 rounded-2xl shadow-2xl border border-neutral-200">
+            <h2 class="text-xl font-extrabold tracking-wide">1手戻りますか？</h2>
+            <p class="text-sm text-neutral-600">直前に打たれたドミノを取り消し、その手番に戻ります。</p>
+            <div class="flex flex-col gap-2 pt-1">
+                <button id="btnUndoConfirm" class="w-full py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-bold rounded-xl transition-colors">
+                    1手戻る
+                </button>
+                <button id="btnUndoCancel" class="w-full py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-bold rounded-xl transition-colors">
+                    キャンセル
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- 【設定モーダル】 -->
@@ -423,6 +442,7 @@
         let lastMove = null; // 直前に配置したコマ { player, p1, p2 }
         let prevBoard = null; // コウ判定用: 直前の着手が行われる前の盤面
         let lastPointerType = 'mouse'; // 'mouse' | 'touch' | 'pen' (スマホ判定用)
+        let history = []; // 1手戻る用: 各着手前のスナップショットのスタック
 
         // オンライン対戦 (PeerJS / WebRTC) 関連
         const ROOM_ID_PREFIX = 'gomino-';
@@ -454,6 +474,7 @@
                     deadStones: [...deadStones],
                     prevBoard,
                     lastMove,
+                    history,
                     gameMode,
                     aiPlayer,
                     myOnlineRole,
@@ -485,6 +506,7 @@
             deadStones = new Set(s.deadStones || []);
             prevBoard = Array.isArray(s.prevBoard) ? s.prevBoard : null;
             lastMove = s.lastMove || null;
+            history = Array.isArray(s.history) ? s.history : [];
             gameMode = ['local', 'ai', 'online'].includes(s.gameMode) ? s.gameMode : 'local';
             aiPlayer = s.aiPlayer === 1 ? 1 : 2;
             myOnlineRole = s.myOnlineRole || null;
@@ -529,6 +551,10 @@
         const komiDisplay = document.getElementById('komiDisplay');
         const btnPass = document.getElementById('btnPass');
         const btnResign = document.getElementById('btnResign');
+        const btnUndo = document.getElementById('btnUndo');
+        const undoModal = document.getElementById('undoModal');
+        const btnUndoConfirm = document.getElementById('btnUndoConfirm');
+        const btnUndoCancel = document.getElementById('btnUndoCancel');
         const btnOpenSettings = document.getElementById('btnOpenSettings');
         const btnCloseSettings = document.getElementById('btnCloseSettings');
         const settingsModal = document.getElementById('settingsModal');
@@ -1087,6 +1113,17 @@
         }
 
         function executeMove(x, y, orient, player) {
+            // 1手戻る用に着手前の状態を退避
+            history.push({
+                board: [...board],
+                dominoes: [...dominoes],
+                captures: { ...captures },
+                turn,
+                consecutivePasses,
+                prevBoard,
+                lastMove
+            });
+
             const p1 = { x, y };
             const p2 = getSecondPos(x, y, orient);
             const idx1 = p1.y * BOARD_SIZE + p1.x;
@@ -1314,10 +1351,69 @@
         }
 
         // ==========================================
-        // 8. パス・投了 & 終局計算
+        // 8. パス・投了・1手戻る & 終局計算
         // ==========================================
         btnPass.addEventListener('click', handlePass);
         btnResign.addEventListener('click', handleResign);
+
+        // 戻せるのは「最後のアクションが着手」の時だけ (パスを跨いだ巻き戻しは不可)
+        function canUndo() {
+            if (gameOver || gamePhase !== 'playing' || history.length === 0 || consecutivePasses !== 0) {
+                return false;
+            }
+            if (gameMode === 'online') {
+                // 自分の最終手だけを戻せる (相手の手は取り消せない)
+                return !!(lastMove && lastMove.player === myOnlineRole);
+            }
+            if (gameMode === 'ai' && turn === aiPlayer) {
+                return false; // AI思考中は戻せない
+            }
+            return true;
+        }
+
+        function undoMove() {
+            if (!canUndo()) return;
+            let snap = history.pop();
+            // AI対戦ではAIの手もまとめて巻き戻し、必ず人間の手番に戻す
+            if (gameMode === 'ai') {
+                while (snap && snap.turn === aiPlayer && history.length > 0) {
+                    snap = history.pop();
+                }
+            }
+            board = snap.board;
+            dominoes = snap.dominoes;
+            captures = snap.captures;
+            turn = snap.turn;
+            consecutivePasses = snap.consecutivePasses;
+            prevBoard = snap.prevBoard;
+            lastMove = snap.lastMove;
+            previewPos = null;
+            updateUI();
+
+            if (gameMode === 'online' && onlineRoomId) {
+                syncOnlineState();
+            }
+            saveState();
+
+            // 巻き戻した結果がAIの手番になった場合は打ち直させる
+            if (!gameOver && gameMode === 'ai' && turn === aiPlayer) {
+                triggerAiMove();
+            }
+        }
+
+        btnUndo.addEventListener('click', () => {
+            soundManager.playClick();
+            if (canUndo()) undoModal.classList.remove('hidden');
+        });
+        btnUndoCancel.addEventListener('click', () => {
+            soundManager.playClick();
+            undoModal.classList.add('hidden');
+        });
+        btnUndoConfirm.addEventListener('click', () => {
+            soundManager.playClick();
+            undoModal.classList.add('hidden');
+            undoMove();
+        });
 
         function handlePass() {
             soundManager.playClick();
@@ -1671,6 +1767,8 @@
             } else {
                 bannerDeadStones.classList.add('hidden');
             }
+            deadStones = new Set(data.deadStones || []);
+            history = Array.isArray(data.history) ? data.history : history;
 
             if (gameOver && gameResultData) {
                 showResultModal();
@@ -1694,7 +1792,9 @@
                 gameResultData,
                 gamePhase,
                 prevBoard,
-                lastMove
+                lastMove,
+                deadStones: [...deadStones],
+                history
             });
         }
 
@@ -1823,6 +1923,7 @@
             else if (gameMode === 'ai') gameModeBadge.textContent = `AI対戦 (${aiPlayer === 2 ? 'あなた:黒' : 'あなた:白'})`;
             else if (gameMode === 'online') gameModeBadge.textContent = `オンライン (${myOnlineRole === 1 ? '黒' : '白'})`;
 
+            btnUndo.disabled = !canUndo();
             render();
         }
 
@@ -1839,6 +1940,7 @@
             previewPos = null;
             lastMove = null;
             prevBoard = null;
+            history = [];
 
             if (bannerDeadStones) bannerDeadStones.classList.add('hidden');
             resultModal.classList.add('hidden');
