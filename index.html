@@ -432,6 +432,91 @@
         let myOnlineRole = null; // 1 (Host=Black) | 2 (Guest=White)
         let isOnlineHost = false;
 
+        // ==========================================
+        // 永続化 (sessionStorage)
+        // リロードで対局状態が消えないよう保存する。
+        // sessionStorage はタブごとに独立なので、複数タブで別々の対局を進行できる。
+        // ==========================================
+        const STORAGE_KEY = 'mamego-save-v1';
+
+        function saveState() {
+            try {
+                sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+                    boardSize: BOARD_SIZE,
+                    board,
+                    dominoes,
+                    turn,
+                    captures,
+                    consecutivePasses,
+                    gameOver,
+                    gameResultData,
+                    gamePhase,
+                    deadStones: [...deadStones],
+                    prevBoard,
+                    lastMove,
+                    gameMode,
+                    aiPlayer,
+                    myOnlineRole,
+                    onlineRoomId,
+                    themeId: currentTheme.id,
+                    soundEnabled: soundManager.enabled
+                }));
+            } catch (e) { /* sessionStorage が使えない環境では保存しない */ }
+        }
+
+        function loadState() {
+            let s = null;
+            try {
+                s = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
+            } catch (e) { s = null; }
+            if (!s || ![9, 13, 19].includes(s.boardSize)
+                || !Array.isArray(s.board) || s.board.length !== s.boardSize * s.boardSize) {
+                return false;
+            }
+            BOARD_SIZE = s.boardSize;
+            board = s.board;
+            dominoes = Array.isArray(s.dominoes) ? s.dominoes : [];
+            turn = s.turn === 2 ? 2 : 1;
+            captures = (s.captures && typeof s.captures === 'object') ? s.captures : { 1: 0, 2: 0 };
+            consecutivePasses = s.consecutivePasses || 0;
+            gameOver = !!s.gameOver;
+            gameResultData = s.gameResultData || null;
+            gamePhase = s.gamePhase || 'playing';
+            deadStones = new Set(s.deadStones || []);
+            prevBoard = Array.isArray(s.prevBoard) ? s.prevBoard : null;
+            lastMove = s.lastMove || null;
+            gameMode = ['local', 'ai', 'online'].includes(s.gameMode) ? s.gameMode : 'local';
+            aiPlayer = s.aiPlayer === 1 ? 1 : 2;
+            myOnlineRole = s.myOnlineRole || null;
+            onlineRoomId = s.onlineRoomId || null;
+            if (s.themeId && THEMES[s.themeId]) currentTheme = THEMES[s.themeId];
+            if (s.soundEnabled === false) soundManager.enabled = false;
+            return true;
+        }
+
+        // 復元した設定を設定モーダルのボタン表示にも反映
+        function syncSettingsUI() {
+            document.querySelectorAll('.btn-size').forEach(b => {
+                const active = parseInt(b.dataset.size) === BOARD_SIZE;
+                b.classList.toggle('bg-neutral-900', active);
+                b.classList.toggle('text-white', active);
+            });
+            document.querySelectorAll('.btn-mode').forEach(b => {
+                const active = b.dataset.mode === gameMode;
+                b.classList.toggle('bg-neutral-900', active);
+                b.classList.toggle('text-white', active);
+            });
+            const aiBtnOn = 'py-1.5 rounded border text-xs font-bold bg-neutral-900 text-white';
+            const aiBtnOff = 'py-1.5 rounded border text-xs font-bold bg-white text-neutral-800 border-neutral-300';
+            btnAiPlayerBlack.className = aiPlayer === 2 ? aiBtnOn : aiBtnOff;
+            btnAiPlayerWhite.className = aiPlayer === 1 ? aiBtnOn : aiBtnOff;
+            aiOptions.classList.toggle('hidden', gameMode !== 'ai');
+            onlineOptions.classList.toggle('hidden', gameMode !== 'online');
+            btnToggleSound.textContent = soundManager.enabled ? 'ON' : 'OFF';
+            btnToggleSound.classList.toggle('bg-neutral-900', soundManager.enabled);
+            btnToggleSound.classList.toggle('text-white', soundManager.enabled);
+        }
+
         // DOM Elements
         const canvas = document.getElementById('boardCanvas');
         const ctx = canvas.getContext('2d');
@@ -926,6 +1011,7 @@
             });
             soundManager.playClick();
             render();
+            saveState();
         }
 
         function getConnectedGroup(startIdx, color) {
@@ -1039,6 +1125,8 @@
             if (gameMode === 'online' && onlineRoomId) {
                 syncOnlineState();
             }
+
+            saveState();
 
             // AI思考トリガー
             if (!gameOver && gameMode === 'ai' && turn === aiPlayer) {
@@ -1253,6 +1341,7 @@
                     triggerAiMove();
                 }
             }
+            saveState();
         }
 
         function startDeadStoneSelectionPhase() {
@@ -1269,6 +1358,7 @@
             deadStones.clear();
             bannerDeadStones.classList.add('hidden');
             render();
+            saveState();
         });
 
         btnConfirmDeadStones.addEventListener('click', () => {
@@ -1309,6 +1399,7 @@
             if (gameMode === 'online' && onlineRoomId) {
                 syncOnlineState();
             }
+            saveState();
         }
 
         function endGameByScore() {
@@ -1344,6 +1435,7 @@
             if (gameMode === 'online' && onlineRoomId) {
                 syncOnlineState();
             }
+            saveState();
         }
 
         function calculateTerritory() {
@@ -1585,6 +1677,7 @@
             }
 
             updateUI();
+            saveState();
         }
 
         // 自分の手番操作の後に、現在のゲーム状態を相手へ送信
@@ -1608,6 +1701,8 @@
         window.addEventListener('beforeunload', () => {
             if (gameMode === 'online') cleanupPeer();
         });
+        // 念のためページを離れる直前にも保存 (保存漏れを拾う)
+        window.addEventListener('pagehide', saveState);
 
         // ==========================================
         // 10. 設定モーダル & UI / テーマ制御
@@ -1629,6 +1724,7 @@
                 document.querySelectorAll('.btn-size').forEach(b => b.classList.remove('bg-neutral-900', 'text-white'));
                 e.target.classList.add('bg-neutral-900', 'text-white');
                 BOARD_SIZE = parseInt(e.target.dataset.size);
+                saveState();
             });
         });
 
@@ -1650,6 +1746,7 @@
 
                 aiOptions.classList.toggle('hidden', gameMode !== 'ai');
                 onlineOptions.classList.toggle('hidden', gameMode !== 'online');
+                saveState();
             });
         });
 
@@ -1658,6 +1755,7 @@
             aiPlayer = 2; // あなた=黒, AI=白
             btnAiPlayerBlack.className = "py-1.5 rounded border text-xs font-bold bg-neutral-900 text-white";
             btnAiPlayerWhite.className = "py-1.5 rounded border text-xs font-bold bg-white text-neutral-800 border-neutral-300";
+            saveState();
         });
 
         btnAiPlayerWhite.addEventListener('click', () => {
@@ -1665,6 +1763,7 @@
             aiPlayer = 1; // あなた=白, AI=黒
             btnAiPlayerWhite.className = "py-1.5 rounded border text-xs font-bold bg-neutral-900 text-white";
             btnAiPlayerBlack.className = "py-1.5 rounded border text-xs font-bold bg-white text-neutral-800 border-neutral-300";
+            saveState();
         });
 
         btnToggleSound.addEventListener('click', () => {
@@ -1673,6 +1772,7 @@
             btnToggleSound.classList.toggle('bg-neutral-900', soundManager.enabled);
             btnToggleSound.classList.toggle('text-white', soundManager.enabled);
             soundManager.playClick();
+            saveState();
         });
 
         // テーマボタン生成
@@ -1702,6 +1802,7 @@
             statusCard.className = `w-full p-3.5 sm:p-4 rounded-xl flex flex-col gap-3 transition-colors text-sm sm:text-base border ${th.cardBg} ${th.border}`;
             btnPass.className = `flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold border rounded-xl hover:opacity-80 active:scale-95 transition-all shadow-sm ${th.cardBg} ${th.border}`;
             render();
+            saveState();
         }
 
         btnStartNewGame.addEventListener('click', () => {
@@ -1745,6 +1846,8 @@
 
             updateUI();
 
+            saveState();
+
             if (gameMode === 'ai' && turn === aiPlayer) {
                 triggerAiMove();
             }
@@ -1753,14 +1856,26 @@
         // アプリ起動時初期化
         window.onload = () => {
             buildThemeList();
-            applyTheme(THEMES.default);
 
-            // デフォルトボタン状態のセット
-            document.querySelector('.btn-size[data-size="9"]').classList.add('bg-neutral-900', 'text-white');
-            document.querySelector('.btn-mode[data-mode="local"]').classList.add('bg-neutral-900', 'text-white');
+            // 保存済みの対局状態があれば復元 (なければ初期状態のまま)
+            const restored = loadState();
+            applyTheme(currentTheme);
+            syncSettingsUI();
+
+            if (restored && gamePhase === 'dead_stone_selection') {
+                bannerDeadStones.classList.remove('hidden');
+            }
+            if (restored && gameOver) {
+                bannerResult.classList.remove('hidden');
+            }
 
             resizeCanvas();
             updateUI();
+
+            // AIの手番の途中でリロードされた場合は思考を再開
+            if (restored && !gameOver && gameMode === 'ai' && turn === aiPlayer) {
+                triggerAiMove();
+            }
         };
     </script>
 </body>
